@@ -76,6 +76,7 @@
       Tu choisis les rôles (quantités). Le reste devient Civil.
       <br>Distribution: Civil/Undercover voient <b>uniquement le mot</b>, Mr White voit qu’il est Mr White.
       <br><b>Règle ordre</b> : Mr White ne peut pas être 1er <b>uniquement au tout premier tour</b>. Après un vote : ordre re-mélangé et Mr White peut être 1er.
+      <br><b>Note</b> : les mots ne sont jamais affichés à l’organisateur.
     </div>
 
     <label>Nombre de joueurs</label>
@@ -168,14 +169,6 @@
 
     <div class="playersGrid" id="playersGrid"></div>
 
-    <div class="divider"></div>
-
-    <button class="secondary" id="showWordsBtn" type="button">Afficher les mots (organisateur)</button>
-    <div id="wordsBox" class="hint hidden" style="margin-top:10px;">
-      Civil: <span class="pill" id="civilWordPill">—</span>
-      Undercover: <span class="pill" id="underWordPill">—</span>
-    </div>
-
     <button class="danger" id="endBtn" type="button">Réinitialiser la partie</button>
   </div>
 
@@ -202,7 +195,7 @@
    Data / helpers
 ---------------------------- */
 const $ = (id) => document.getElementById(id);
-const LS_KEY = "undercover_webapp_v4";
+const LS_KEY = "undercover_webapp_v5";
 
 const DEFAULT_PAIRS = [
   "Chien;Loup","Chat;Lynx","Cheval;Âne","Vache;Taureau","Aigle;Faucon","Requin;Orque","Dauphin;Baleine","Serpent;Vipère","Souris;Rat","Lapin;Lièvre",
@@ -253,14 +246,12 @@ function norm(s){ return (s||"").trim().toLowerCase(); }
 function makeTurnOrderAlive(game){
   return game.players.filter(p=>p.alive).map(p=>p.id);
 }
-
 function makeTurnOrderInitial(game){
   const order = makeTurnOrderAlive(game);
   shuffle(order);
 
   const firstPlayer = game.players.find(p => p.id === order[0]);
   if (firstPlayer && firstPlayer.role === "MRWHITE") {
-    // swap with first non-MRWHITE (if possible)
     const swapIndex = order.findIndex(id => {
       const pl = game.players.find(p => p.id === id);
       return pl && pl.role !== "MRWHITE";
@@ -269,13 +260,11 @@ function makeTurnOrderInitial(game){
   }
   return order;
 }
-
 function makeTurnOrderAfterVote(game){
   const order = makeTurnOrderAlive(game);
-  shuffle(order); // Mr White peut être 1er ici
+  shuffle(order);
   return order;
 }
-
 function resetTurnToOrder(game, order){
   game.turnOrder = order;
   game.turnPtr = 0;
@@ -283,7 +272,7 @@ function resetTurnToOrder(game, order){
 }
 
 /* ---------------------------
-   Game rules / win check
+   Win check
 ---------------------------- */
 function countAlive(game, role){
   return game.players.filter(p=>p.alive && p.role===role).length;
@@ -301,7 +290,7 @@ function checkWin(game){
 }
 
 /* ---------------------------
-   UI State
+   UI helpers
 ---------------------------- */
 function showOnly(which){
   $("setup").classList.toggle("hidden", which!=="setup");
@@ -347,7 +336,7 @@ function modalClose(){
 }
 
 /* ---------------------------
-   Create / resume game
+   Create / resume
 ---------------------------- */
 function createGame(){
   const n = Math.max(3, parseInt($("playerCount").value||"6",10));
@@ -395,14 +384,12 @@ function createGame(){
     currentTurnId: null,
   };
 
-  // On init l'ordre ici, mais il sera (re)calé au moment où la partie commence (fin reveal)
-  // Important: au tout premier tour, Mr White ne peut pas être 1er
+  // Init ordre (sera appliqué au moment du début de partie aussi)
   resetTurnToOrder(game, makeTurnOrderInitial(game));
 
   save(game);
   return game;
 }
-
 function resumeGame(){
   const game = load();
   if(!game) { alert("Aucune partie sauvegardée."); return; }
@@ -435,7 +422,6 @@ function renderReveal(game){
     $("tapBtn").disabled = false;
   }
 }
-
 function revealTap(){
   const game = load(); if(!game) return;
   if (game.stage !== "reveal") return;
@@ -443,7 +429,6 @@ function revealTap(){
   save(game);
   render(game);
 }
-
 function hideAndNext(){
   const game = load(); if(!game) return;
   if (game.stage !== "reveal") return;
@@ -455,18 +440,13 @@ function hideAndNext(){
     save(game);
     render(game);
   } else {
-    // end reveal -> game
     game.stage = "game";
     game.mode = "TURN";
-
-    // IMPORTANT: premier tour => Mr White pas 1er
-    resetTurnToOrder(game, makeTurnOrderInitial(game));
-
+    resetTurnToOrder(game, makeTurnOrderInitial(game)); // 1er tour: MW pas 1er
     save(game);
     render(game);
   }
 }
-
 function skipReveal(){
   const game = load(); if(!game) return;
   if (game.stage !== "reveal") return;
@@ -499,9 +479,6 @@ function renderGame(game){
     return p ? p.name : "?";
   });
   $("orderLine").textContent = orderNames.length ? orderNames.join(" → ") : "—";
-
-  $("civilWordPill").textContent = game.words.civil;
-  $("underWordPill").textContent = game.words.under;
 
   const grid = $("playersGrid");
   grid.innerHTML = "";
@@ -545,7 +522,6 @@ function nextTurn(){
   const game = load(); if(!game) return;
   if (game.stage !== "game") return;
 
-  // avancer dans l'ordre actuel (qui est un ordre d'IDs vivants)
   if (!game.turnOrder || !game.turnOrder.length) {
     resetTurnToOrder(game, makeTurnOrderAfterVote(game));
     save(game);
@@ -569,13 +545,11 @@ function onPlayerClick(pid){
   if (game.mode === "TURN"){
     if (!p.alive) return;
 
-    // si tu cliques un joueur, on met le pointeur dessus (dans l'ordre actuel)
     const idx = (game.turnOrder || []).indexOf(p.id);
     if (idx >= 0) {
       game.turnPtr = idx;
       game.currentTurnId = p.id;
     } else {
-      // si jamais l'ordre est vide/bizarre, on le recrée
       resetTurnToOrder(game, makeTurnOrderAfterVote(game));
     }
     save(game);
@@ -588,8 +562,7 @@ function onPlayerClick(pid){
 }
 
 function reshuffleAfterVote(game){
-  // Après un vote: ordre aléatoire, Mr White peut être 1er
-  resetTurnToOrder(game, makeTurnOrderAfterVote(game));
+  resetTurnToOrder(game, makeTurnOrderAfterVote(game)); // après vote: MW peut être 1er
 }
 
 function confirmVote(pid){
@@ -599,10 +572,9 @@ function confirmVote(pid){
 
   const roleLabel = (p.role==="CIVIL") ? "Civil" : (p.role==="UNDERCOVER" ? "Undercover" : "Mr White");
 
-  // élimination
   p.alive = false;
 
-  // IMPORTANT: après chaque vote => ordre re-mélangé
+  // Après chaque vote: re-mélange l'ordre des vivants
   reshuffleAfterVote(game);
 
   save(game);
@@ -610,7 +582,6 @@ function confirmVote(pid){
 
   modalOpen("Vote", `<b>${p.name}</b> est éliminé.<br>Rôle : <span class="pill">${roleLabel}</span>`);
 
-  // Mr White guess
   if (p.role === "MRWHITE"){
     $("guessArea").classList.remove("hidden");
     $("guessInput").focus();
@@ -621,13 +592,13 @@ function confirmVote(pid){
 
       if (norm(guess) === norm(g.words.civil)){
         $("guessArea").classList.add("hidden");
-        modalOpen("🎉 Mr White gagne !", `Il a deviné le mot Civil : <span class="pill">${g.words.civil}</span>`);
+        modalOpen("🎉 Mr White gagne !", `Il a deviné le mot Civil.`);
         save(g);
         render(g);
         return;
       } else {
         $("guessArea").classList.add("hidden");
-        modalOpen("❌ Mauvais guess", `Le mot Civil n’était pas ça. La partie continue.`);
+        modalOpen("❌ Mauvais guess", `La partie continue.`);
         const res = checkWin(g);
         if (res.over) modalOpen("Fin de partie", res.msg);
         save(g);
@@ -643,10 +614,6 @@ function confirmVote(pid){
 
   save(game);
   render(game);
-}
-
-function toggleWords(){
-  $("wordsBox").classList.toggle("hidden");
 }
 
 /* ---------------------------
@@ -695,7 +662,6 @@ $("resetGameBtn").addEventListener("click", () => {
 $("modeTurnBtn").addEventListener("click", () => setMode("TURN"));
 $("modeVoteBtn").addEventListener("click", () => setMode("VOTE"));
 $("nextTurnBtn").addEventListener("click", () => nextTurn());
-$("showWordsBtn").addEventListener("click", () => toggleWords());
 $("endBtn").addEventListener("click", () => {
   if(confirm("Réinitialiser la partie ?")){ wipe(); showOnly("setup"); }
 });

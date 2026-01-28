@@ -19,7 +19,7 @@
       width:100%; border-radius:12px; border:1px solid #2b2b3d; background:#101017; color:#fff;
       padding:12px; font-size: 16px;
     }
-    textarea { min-height: 110px; resize: vertical; }
+    textarea { min-height: 130px; resize: vertical; }
     button { cursor:pointer; border:none; background:#3b82f6; margin-top: 10px; font-weight: 800; }
     button.secondary { background:#2a2a38; }
     button.danger { background:#ef4444; }
@@ -60,9 +60,11 @@
       display:flex; align-items:center; justify-content:center; padding:16px;
     }
     .modal {
-      width: min(560px, 100%); background:#141419; border:1px solid #262635; border-radius:18px; padding:16px;
+      width: min(620px, 100%); background:#141419; border:1px solid #262635; border-radius:18px; padding:16px;
     }
     .modal h2 { margin: 0 0 10px; font-size: 18px; }
+    .modalActions { display:flex; gap:10px; margin-top:12px; }
+    .modalActions button { width:auto; flex:1; }
   </style>
 </head>
 <body>
@@ -76,7 +78,7 @@
       Tu choisis les rôles (quantités). Le reste devient Civil.
       <br>Distribution: Civil/Undercover voient <b>uniquement le mot</b>, Mr White voit qu’il est Mr White.
       <br><b>Règle ordre</b> : Mr White ne peut pas être 1er <b>uniquement au tout premier tour</b>. Après un vote : ordre re-mélangé et Mr White peut être 1er.
-      <br><b>Note</b> : les mots ne sont jamais affichés à l’organisateur.
+      <br><b>Admin</b> : les mots sont cachés, modifiables via PIN.
     </div>
 
     <label>Nombre de joueurs</label>
@@ -106,9 +108,7 @@
 
     <div class="divider"></div>
 
-    <div class="big">Mots</div>
-    <div class="hint">Une paire par ligne: <b>civil;undercover</b></div>
-    <textarea id="pairs"></textarea>
+    <button class="secondary" id="editWordsBtn" type="button">Modifier les mots</button>
 
     <button id="startBtn">Démarrer la partie</button>
     <button class="secondary" id="resumeBtn">Reprendre une partie</button>
@@ -178,11 +178,32 @@
       <h2 id="modalTitle">—</h2>
       <div id="modalBody" class="hint">—</div>
 
+      <!-- Vote: guess -->
       <div id="guessArea" class="hidden" style="margin-top:12px;">
         <label>Mr White : devine le mot des Civils</label>
         <input id="guessInput" type="text" placeholder="Tape le mot civil..." />
         <button id="guessBtn">Valider le guess</button>
         <div class="hint" style="margin-top:8px;">Si faux, la partie continue (Mr White est éliminé).</div>
+      </div>
+
+      <!-- Admin: PIN -->
+      <div id="pinArea" class="hidden" style="margin-top:12px;">
+        <label>Code PIN</label>
+        <input id="pinInput" type="password" inputmode="numeric" placeholder="PIN" />
+        <div class="modalActions">
+          <button class="secondary" id="pinCancelBtn" type="button">Annuler</button>
+          <button id="pinOkBtn" type="button">OK</button>
+        </div>
+      </div>
+
+      <!-- Admin: Editor -->
+      <div id="editorArea" class="hidden" style="margin-top:12px;">
+        <div class="hint">Format: <b>civil;undercover</b> — 1 paire par ligne</div>
+        <textarea id="editorTextarea"></textarea>
+        <div class="modalActions">
+          <button class="secondary" id="editorCancelBtn" type="button">Annuler</button>
+          <button id="editorSaveBtn" type="button">Sauvegarder</button>
+        </div>
       </div>
 
       <button class="secondary" id="modalCloseBtn" type="button">Fermer</button>
@@ -195,7 +216,9 @@
    Data / helpers
 ---------------------------- */
 const $ = (id) => document.getElementById(id);
-const LS_KEY = "undercover_webapp_v5";
+const LS_KEY = "undercover_webapp_v6";
+const WORDS_KEY = "undercover_pairs_v1";
+const ADMIN_PIN = "2004";
 
 const DEFAULT_PAIRS = [
   "Chien;Loup","Chat;Lynx","Cheval;Âne","Vache;Taureau","Aigle;Faucon","Requin;Orque","Dauphin;Baleine","Serpent;Vipère","Souris;Rat","Lapin;Lièvre",
@@ -228,7 +251,10 @@ function parsePairs(text){
 }
 function save(game){ localStorage.setItem(LS_KEY, JSON.stringify(game)); }
 function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"null"); }catch{ return null; } }
-function wipe(){ localStorage.removeItem(LS_KEY); }
+function wipe(){
+  localStorage.removeItem(LS_KEY);
+  // NOTE: on ne supprime pas les mots ici (c'est voulu). Pour reset complet, tu peux vider safari storage.
+}
 function initials(name){
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if(!parts.length) return "?";
@@ -237,6 +263,16 @@ function initials(name){
   return (a+b).toUpperCase();
 }
 function norm(s){ return (s||"").trim().toLowerCase(); }
+
+/* ---------------------------
+   Admin words storage
+---------------------------- */
+function getPairsText(){
+  return localStorage.getItem(WORDS_KEY) || DEFAULT_PAIRS;
+}
+function setPairsText(text){
+  localStorage.setItem(WORDS_KEY, text);
+}
 
 /* ---------------------------
    Turn order
@@ -321,7 +357,7 @@ function genNameInputs(){
 }
 
 /* ---------------------------
-   Modal
+   Modal (generic + vote + admin)
 ---------------------------- */
 function modalOpen(title, bodyHtml){
   $("modalTitle").textContent = title;
@@ -330,9 +366,84 @@ function modalOpen(title, bodyHtml){
 }
 function modalClose(){
   $("modalBackdrop").classList.add("hidden");
+
+  // hide areas
   $("guessArea").classList.add("hidden");
+  $("pinArea").classList.add("hidden");
+  $("editorArea").classList.add("hidden");
+
+  // clear inputs
   $("guessInput").value = "";
+  $("pinInput").value = "";
+  $("editorTextarea").value = "";
+
+  // reset handlers
   $("guessBtn").onclick = null;
+  $("pinOkBtn").onclick = null;
+  $("pinCancelBtn").onclick = null;
+  $("editorSaveBtn").onclick = null;
+  $("editorCancelBtn").onclick = null;
+}
+
+/* ---------------------------
+   Admin flow
+---------------------------- */
+function openAdminPin(){
+  modalOpen("Admin", "Entre le PIN pour modifier les mots.");
+  $("pinArea").classList.remove("hidden");
+  $("pinInput").focus();
+
+  $("pinCancelBtn").onclick = () => modalClose();
+  $("pinOkBtn").onclick = () => {
+    const entered = $("pinInput").value || "";
+    if (entered === ADMIN_PIN){
+      openAdminEditor();
+    } else {
+      // pas d'info, juste "faux"
+      modalOpen("Admin", "PIN incorrect.");
+      $("pinArea").classList.remove("hidden");
+      $("pinInput").value = "";
+      $("pinInput").focus();
+      $("pinCancelBtn").onclick = () => modalClose();
+      $("pinOkBtn").onclick = () => {
+        const again = $("pinInput").value || "";
+        if (again === ADMIN_PIN) openAdminEditor();
+        else {
+          modalOpen("Admin", "PIN incorrect.");
+          $("pinArea").classList.remove("hidden");
+          $("pinInput").value = "";
+          $("pinInput").focus();
+        }
+      };
+    }
+  };
+}
+
+function openAdminEditor(){
+  // on ne ferme pas le modal: on remplace son contenu
+  modalOpen("Modifier les mots", "");
+  $("editorArea").classList.remove("hidden");
+
+  const original = getPairsText();
+  $("editorTextarea").value = original;
+
+  $("editorCancelBtn").onclick = () => {
+    // Annuler = annule toute modif (ne sauvegarde rien)
+    modalClose();
+  };
+
+  $("editorSaveBtn").onclick = () => {
+    const text = $("editorTextarea").value || "";
+    const pairs = parsePairs(text);
+    if (pairs.length < 1){
+      modalOpen("Modifier les mots", "Il faut au moins 1 paire au format <b>civil;undercover</b>.");
+      $("editorArea").classList.remove("hidden");
+      return;
+    }
+    setPairsText(text);
+    modalOpen("✅ Sauvegardé", "Les mots ont été mis à jour.");
+    // on laisse fermer via bouton Fermer
+  };
 }
 
 /* ---------------------------
@@ -351,8 +462,10 @@ function createGame(){
   if (nameInputs.length !== n) { alert("Clique d’abord sur “Générer les champs” pour les noms."); return null; }
 
   const names = nameInputs.map(inp => (inp.value||"").trim()).map((v,i)=>v || `Joueur ${i+1}`);
-  const pairs = parsePairs($("pairs").value);
-  if (!pairs.length) { alert("Ajoute au moins 1 paire civil;undercover."); return null; }
+
+  const pairsText = getPairsText();
+  const pairs = parsePairs(pairsText);
+  if (!pairs.length) { alert("Liste de mots invalide. Utilise Admin pour corriger."); return null; }
 
   const picked = pairs[Math.floor(Math.random()*pairs.length)];
 
@@ -384,12 +497,11 @@ function createGame(){
     currentTurnId: null,
   };
 
-  // Init ordre (sera appliqué au moment du début de partie aussi)
   resetTurnToOrder(game, makeTurnOrderInitial(game));
-
   save(game);
   return game;
 }
+
 function resumeGame(){
   const game = load();
   if(!game) { alert("Aucune partie sauvegardée."); return; }
@@ -422,6 +534,7 @@ function renderReveal(game){
     $("tapBtn").disabled = false;
   }
 }
+
 function revealTap(){
   const game = load(); if(!game) return;
   if (game.stage !== "reveal") return;
@@ -429,6 +542,7 @@ function revealTap(){
   save(game);
   render(game);
 }
+
 function hideAndNext(){
   const game = load(); if(!game) return;
   if (game.stage !== "reveal") return;
@@ -442,11 +556,12 @@ function hideAndNext(){
   } else {
     game.stage = "game";
     game.mode = "TURN";
-    resetTurnToOrder(game, makeTurnOrderInitial(game)); // 1er tour: MW pas 1er
+    resetTurnToOrder(game, makeTurnOrderInitial(game));
     save(game);
     render(game);
   }
 }
+
 function skipReveal(){
   const game = load(); if(!game) return;
   if (game.stage !== "reveal") return;
@@ -629,13 +744,13 @@ function render(game){
 /* ---------------------------
    Wire up
 ---------------------------- */
-$("pairs").value = DEFAULT_PAIRS;
-
 $("playerCount").addEventListener("input", () => { updateCivilPill(); });
 $("ucCount").addEventListener("input", () => { updateCivilPill(); });
 $("mwCount").addEventListener("input", () => { updateCivilPill(); });
 
 $("genNamesBtn").addEventListener("click", () => genNameInputs());
+
+$("editWordsBtn").addEventListener("click", () => openAdminPin());
 
 $("startBtn").addEventListener("click", () => {
   updateCivilPill();
@@ -646,7 +761,7 @@ $("startBtn").addEventListener("click", () => {
 $("resumeBtn").addEventListener("click", () => resumeGame());
 
 $("wipeBtn").addEventListener("click", () => {
-  if(confirm("Tout effacer (partie + réglages sauvegardés) ?")){
+  if(confirm("Effacer la partie en cours ? (les mots admin restent)")){
     wipe();
     showOnly("setup");
   }

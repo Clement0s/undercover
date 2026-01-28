@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Undercover</title>
+  <meta name="theme-color" content="#111111" />
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:#0b0b0d; color:#fff; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 22px; margin: 0 0 12px; }
+    .card { background:#141419; border:1px solid #262635; border-radius:16px; padding:16px; margin:12px 0; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    @media (max-width:720px){ .row{ grid-template-columns:1fr; } }
+
+    label { display:block; font-size: 14px; opacity:.9; margin: 10px 0 6px; }
+    input, select, button, textarea {
+      width:100%; border-radius:12px; border:1px solid #2b2b3d; background:#101017; color:#fff;
+      padding:12px; font-size: 16px;
+    }
+    textarea { min-height: 110px; resize: vertical; }
+    button { cursor:pointer; border:none; background:#3b82f6; margin-top: 10px; font-weight: 800; }
+    button.secondary { background:#2a2a38; }
+    button.danger { background:#ef4444; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .hint { font-size: 13px; opacity:.8; line-height: 1.4; }
+    .divider { height:1px; background:#24243a; margin: 14px 0; }
+    .big { font-size: 18px; font-weight: 900; }
+    .pill { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid #2b2b3d; background:#101017; margin: 6px 6px 0 0; font-size: 13px; opacity:.95; }
+    .hidden { display:none; }
+
+    /* Player icons */
+    .playersGrid { display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width:600px){ .playersGrid{ grid-template-columns: repeat(3, 1fr);} }
+    .pbtn {
+      border:1px solid #2b2b3d; background:#101017; border-radius:16px; padding:10px;
+      display:flex; flex-direction:column; align-items:center; gap:8px;
+    }
+    .pbtn.active { outline: 2px solid #3b82f6; }
+    .pbtn.dead { opacity:.45; filter: grayscale(1); }
+    .avatar {
+      width:52px; height:52px; border-radius:999px; border:1px solid #2b2b3d;
+      display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px;
+      background:#0f0f16;
+    }
+    .pname { font-size: 14px; font-weight: 700; text-align:center; word-break: break-word; }
+    .sub { font-size: 12px; opacity:.75; text-align:center; }
+
+    /* Segmented control */
+    .seg { display:flex; gap:8px; }
+    .seg button { margin:0; background:#2a2a38; }
+    .seg button.on { background:#3b82f6; }
+
+    /* Modal */
+    .modalBackdrop {
+      position:fixed; inset:0; background: rgba(0,0,0,.55);
+      display:flex; align-items:center; justify-content:center; padding:16px;
+    }
+    .modal {
+      width: min(560px, 100%); background:#141419; border:1px solid #262635; border-radius:18px; padding:16px;
+    }
+    .modal h2 { margin: 0 0 10px; font-size: 18px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Undercover</h1>
+
+  <!-- SETUP -->
+  <div id="setup" class="card">
+    <div class="big">Configuration</div>
+    <div class="hint">
+      Tu choisis les rôles (quantités). Le reste devient Civil.
+      <br>Distribution: Civil/Undercover voient <b>uniquement le mot</b>, Mr White voit qu’il est Mr White.
+    </div>
+
+    <label>Nombre de joueurs</label>
+    <input id="playerCount" type="number" min="3" value="6" />
+
+    <div class="row">
+      <div>
+        <label>Nombre d’Undercover</label>
+        <input id="ucCount" type="number" min="0" value="1" />
+      </div>
+      <div>
+        <label>Nombre de Mr White</label>
+        <input id="mwCount" type="number" min="0" value="1" />
+      </div>
+    </div>
+
+    <div class="hint">
+      Civils : <span class="pill" id="civilCountPill">—</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="big">Noms des joueurs</div>
+    <div class="hint">Clique “Générer” puis modifie les noms.</div>
+    <button class="secondary" id="genNamesBtn">Générer les champs</button>
+    <div id="namesArea"></div>
+
+    <div class="divider"></div>
+
+    <div class="big">Mots</div>
+    <div class="hint">Une paire par ligne: <b>civil;undercover</b></div>
+    <textarea id="pairs"></textarea>
+
+    <button id="startBtn">Démarrer la partie</button>
+    <button class="secondary" id="resumeBtn">Reprendre une partie</button>
+    <button class="danger" id="wipeBtn">Tout effacer</button>
+  </div>
+
+  <!-- REVEAL -->
+  <div id="reveal" class="card hidden">
+    <div class="big">Distribution (1 par 1)</div>
+    <div class="hint">
+      L’écran affiche un nom. Le joueur prend le tel, <b>tape pour voir</b>, puis <b>re-tape pour cacher</b> et passer au suivant.
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="pill">Joueur : <span id="revealName">—</span></div>
+
+    <button id="tapBtn">Taper pour voir</button>
+
+    <div id="secretBox" class="card hidden" style="margin-top:12px;">
+      <div class="big" id="secretTitle">—</div>
+      <div style="margin-top:10px; font-size:34px; font-weight:950;" id="secretWord">—</div>
+      <div class="hint" id="secretHint" style="margin-top:10px;"></div>
+      <button class="secondary" id="hideAndNextBtn">Re-taper / cacher & suivant</button>
+    </div>
+
+    <button class="secondary" id="skipBtn">Passer au suivant</button>
+    <button class="danger" id="resetGameBtn">Réinitialiser la partie</button>
+  </div>
+
+  <!-- GAME -->
+  <div id="game" class="card hidden">
+    <div class="big">Partie</div>
+    <div class="hint">
+      <b>Mode Tour</b> : clique un joueur pour le mettre en cours, ou “Suivant”.
+      <br><b>Mode Vote</b> : clique un joueur vivant pour voter → son rôle s’affiche.
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row">
+      <div>
+        <div class="pill">Tour en cours : <span id="turnName">—</span></div>
+        <div class="hint" id="statusLine" style="margin-top:8px;">—</div>
+      </div>
+      <div>
+        <div class="seg">
+          <button id="modeTurnBtn" class="on" type="button">Mode Tour</button>
+          <button id="modeVoteBtn" type="button">Mode Vote</button>
+        </div>
+        <button class="secondary" id="nextTurnBtn" type="button">Suivant</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="playersGrid" id="playersGrid"></div>
+
+    <div class="divider"></div>
+
+    <button class="secondary" id="showWordsBtn" type="button">Afficher les mots (organisateur)</button>
+    <div id="wordsBox" class="hint hidden" style="margin-top:10px;">
+      Civil: <span class="pill" id="civilWordPill">—</span>
+      Undercover: <span class="pill" id="underWordPill">—</span>
+    </div>
+
+    <button class="danger" id="endBtn" type="button">Réinitialiser la partie</button>
+  </div>
+
+  <!-- MODAL -->
+  <div id="modalBackdrop" class="modalBackdrop hidden">
+    <div class="modal">
+      <h2 id="modalTitle">—</h2>
+      <div id="modalBody" class="hint">—</div>
+
+      <div id="guessArea" class="hidden" style="margin-top:12px;">
+        <label>Mr White : devine le mot des Civils</label>
+        <input id="guessInput" type="text" placeholder="Tape le mot civil..." />
+        <button id="guessBtn">Valider le guess</button>
+        <div class="hint" style="margin-top:8px;">Si faux, la partie continue (Mr White est éliminé).</div>
+      </div>
+
+      <button class="secondary" id="modalCloseBtn" type="button">Fermer</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ---------------------------
+   Data / helpers
+---------------------------- */
+const $ = (id) => document.getElementById(id);
+const LS_KEY = "undercover_webapp_v2";
+
+const DEFAULT_PAIRS = [
+  "Chien;Loup","Plage;Désert","Pizza;Quiche","Voiture;Moto","Banque;Casino",
+  "Médecin;Infirmier","Café;Thé","Police;Armée","Netflix;YouTube","Paris;Londres",
+  "Bague;Collier","Hiver;Automne","Basket;Football","Avion;Train","Pomme;Poire"
+].join("\n");
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+function parsePairs(text){
+  return text.split("\n")
+    .map(l=>l.trim()).filter(Boolean)
+    .map(line=>{
+      const parts=line.split(";").map(x=>x.trim()).filter(Boolean);
+      return parts.length===2?{civil:parts[0],under:parts[1]}:null;
+    }).filter(Boolean);
+}
+function save(game){ localStorage.setItem(LS_KEY, JSON.stringify(game)); }
+function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"null"); }catch{ return null; } }
+function wipe(){ localStorage.removeItem(LS_KEY); }
+function initials(name){
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if(!parts.length) return "?";
+  const a = parts[0][0] || "";
+  const b = parts.length>1 ? parts[parts.length-1][0] : (parts[0][1]||"");
+  return (a+b).toUpperCase();
+}
+function norm(s){ return (s||"").trim().toLowerCase(); }
+
+/* ---------------------------
+   Game rules / win check
+---------------------------- */
+function countAlive(game, role){
+  return game.players.filter(p=>p.alive && p.role===role).length;
+}
+function checkWin(game){
+  const alivePlayers = game.players.filter(p=>p.alive).length;
+  const uc = countAlive(game,"UNDERCOVER");
+  const mw = countAlive(game,"MRWHITE");
+  const civ = countAlive(game,"CIVIL");
+
+  // Civils win: no undercover left AND (no Mr White left or Mr White already eliminated)
+  if (uc === 0 && mw === 0) return { over:true, msg:"✅ Les Civils gagnent ! (Plus d’Undercover, plus de Mr White)" };
+
+  // Undercover win: undercover >= civils (MrWhite can be alive or dead, doesn’t matter much)
+  if (uc > 0 && uc >= civ) return { over:true, msg:"😈 Les Undercover gagnent ! (Ils sont au moins autant que les Civils)" };
+
+  // If only Mr White remains, he can’t really continue meaningfully; call it his win only if you want.
+  if (alivePlayers === 1 && mw === 1) return { over:true, msg:"🕵️ Mr White est le dernier en vie !" };
+
+  return { over:false, msg:null };
+}
+
+/* ---------------------------
+   UI State
+---------------------------- */
+function showOnly(which){
+  $("setup").classList.toggle("hidden", which!=="setup");
+  $("reveal").classList.toggle("hidden", which!=="reveal");
+  $("game").classList.toggle("hidden", which!=="game");
+}
+function updateCivilPill(){
+  const n = Math.max(3, parseInt($("playerCount").value||"6",10));
+  const uc = Math.max(0, parseInt($("ucCount").value||"0",10));
+  const mw = Math.max(0, parseInt($("mwCount").value||"0",10));
+  const civ = n - uc - mw;
+  $("civilCountPill").textContent = civ >= 0 ? String(civ) : "⚠️ trop de rôles";
+}
+
+function genNameInputs(){
+  const n = Math.max(3, parseInt($("playerCount").value||"6",10));
+  const area = $("namesArea");
+  area.innerHTML = "";
+  for(let i=0;i<n;i++){
+    const label = document.createElement("label");
+    label.textContent = `Joueur ${i+1}`;
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.value = (i===0) ? "Clément" : `Joueur ${i+1}`;
+    inp.dataset.idx = String(i);
+    area.appendChild(label);
+    area.appendChild(inp);
+  }
+}
+
+function modalOpen(title, bodyHtml){
+  $("modalTitle").textContent = title;
+  $("modalBody").innerHTML = bodyHtml;
+  $("modalBackdrop").classList.remove("hidden");
+}
+function modalClose(){
+  $("modalBackdrop").classList.add("hidden");
+  $("guessArea").classList.add("hidden");
+  $("guessInput").value = "";
+  // Note: do not auto-resume anything here.
+}
+
+/* ---------------------------
+   Create / resume game
+---------------------------- */
+function createGame(){
+  const n = Math.max(3, parseInt($("playerCount").value||"6",10));
+  const ucCount = Math.max(0, parseInt($("ucCount").value||"0",10));
+  const mwCount = Math.max(0, parseInt($("mwCount").value||"0",10));
+  const civCount = n - ucCount - mwCount;
+
+  if (civCount < 0) { alert("Trop de rôles: Undercover + Mr White > joueurs."); return null; }
+  if (ucCount + mwCount === 0) { alert("Mets au moins 1 rôle spécial (Undercover ou Mr White)."); return null; }
+
+  const nameInputs = Array.from($("namesArea").querySelectorAll("input"));
+  if (nameInputs.length !== n) { alert("Clique d’abord sur “Générer les champs” pour les noms."); return null; }
+
+  const names = nameInputs.map(inp => (inp.value||"").trim()).map((v,i)=>v || `Joueur ${i+1}`);
+  const pairs = parsePairs($("pairs").value);
+  if (!pairs.length) { alert("Ajoute au moins 1 paire civil;undercover."); return null; }
+
+  const picked = pairs[Math.floor(Math.random()*pairs.length)];
+
+  // Build roles list then shuffle
+  const roles = [];
+  for(let i=0;i<civCount;i++) roles.push("CIVIL");
+  for(let i=0;i<ucCount;i++) roles.push("UNDERCOVER");
+  for(let i=0;i<mwCount;i++) roles.push("MRWHITE");
+  shuffle(roles);
+
+  const players = names.map((name, idx)=>({
+    id: idx,
+    name,
+    role: roles[idx],
+    alive: true
+  }));
+
+  const game = {
+    createdAt: Date.now(),
+    stage: "reveal", // setup | reveal | game
+    mode: "TURN", // TURN | VOTE
+    words: { civil: picked.civil, under: picked.under },
+    players,
+    revealIndex: 0,
+    revealOpen: false,
+    currentTurnId: players[0].id,
+    lastMessage: "Partie créée."
+  };
+
+  save(game);
+  return game;
+}
+
+function resumeGame(){
+  const game = load();
+  if(!game) { alert("Aucune partie sauvegardée."); return; }
+  render(game);
+}
+
+/* ---------------------------
+   Reveal flow
+---------------------------- */
+function renderReveal(game){
+  showOnly("reveal");
+  const p = game.players[game.revealIndex];
+  $("revealName").textContent = p ? p.name : "—";
+  $("secretBox").classList.toggle("hidden", !game.revealOpen);
+
+  if (!p) return;
+
+  if (game.revealOpen){
+    if (p.role === "MRWHITE"){
+      $("secretTitle").textContent = "Mr White";
+      $("secretWord").textContent = "—";
+      $("secretHint").textContent = "Tu n’as pas de mot. Survis et essaye de deviner le mot des Civils.";
+    } else {
+      // Civil or Undercover: show ONLY the word, no role
+      $("secretTitle").textContent = "Ton mot";
+      $("secretWord").textContent = (p.role === "CIVIL") ? game.words.civil : game.words.under;
+      $("secretHint").textContent = "Donne un indice sans dire le mot. (Tu ne sais pas si tu es Civil ou Undercover.)";
+    }
+    $("tapBtn").disabled = true;
+  } else {
+    $("tapBtn").disabled = false;
+  }
+}
+
+function revealTap(){
+  const game = load(); if(!game) return;
+  if (game.stage !== "reveal") return;
+  game.revealOpen = true;
+  save(game);
+  render(game);
+}
+
+function hideAndNext(){
+  const game = load(); if(!game) return;
+  if (game.stage !== "reveal") return;
+
+  game.revealOpen = false;
+  if (game.revealIndex < game.players.length - 1){
+    game.revealIndex += 1;
+    save(game);
+    render(game);
+  } else {
+    // end reveal -> game
+    game.stage = "game";
+    game.mode = "TURN";
+    game.currentTurnId = game.players.find(p=>p.alive)?.id ?? 0;
+    game.lastMessage = "Distribution terminée. Bon jeu !";
+    save(game);
+    render(game);
+  }
+}
+
+function skipReveal(){
+  const game = load(); if(!game) return;
+  if (game.stage !== "reveal") return;
+  game.revealOpen = false;
+  if (game.revealIndex < game.players.length - 1) game.revealIndex += 1;
+  save(game);
+  render(game);
+}
+
+/* ---------------------------
+   Game UI
+---------------------------- */
+function renderGame(game){
+  showOnly("game");
+
+  // Mode buttons
+  $("modeTurnBtn").classList.toggle("on", game.mode==="TURN");
+  $("modeVoteBtn").classList.toggle("on", game.mode==="VOTE");
+
+  // Turn label
+  const turnPlayer = game.players.find(p=>p.id===game.currentTurnId) || game.players.find(p=>p.alive);
+  $("turnName").textContent = turnPlayer ? turnPlayer.name : "—";
+
+  // status line
+  const alive = game.players.filter(p=>p.alive).length;
+  const civ = countAlive(game,"CIVIL");
+  const uc = countAlive(game,"UNDERCOVER");
+  const mw = countAlive(game,"MRWHITE");
+  $("statusLine").textContent = `Vivants: ${alive} — Civils: ${civ} — Undercover: ${uc} — Mr White: ${mw}`;
+
+  // Words box
+  $("civilWordPill").textContent = game.words.civil;
+  $("underWordPill").textContent = game.words.under;
+
+  // Grid
+  const grid = $("playersGrid");
+  grid.innerHTML = "";
+  for (const p of game.players){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pbtn" +
+      (p.alive ? "" : " dead") +
+      (p.id===game.currentTurnId ? " active" : "");
+    btn.dataset.pid = String(p.id);
+
+    const av = document.createElement("div");
+    av.className = "avatar";
+    av.textContent = initials(p.name);
+
+    const nm = document.createElement("div");
+    nm.className = "pname";
+    nm.textContent = p.name;
+
+    const sb = document.createElement("div");
+    sb.className = "sub";
+    sb.textContent = p.alive ? (game.mode==="VOTE" ? "Voter" : "Tour") : "Éliminé";
+
+    btn.appendChild(av);
+    btn.appendChild(nm);
+    btn.appendChild(sb);
+
+    btn.addEventListener("click", () => onPlayerClick(p.id));
+    grid.appendChild(btn);
+  }
+}
+
+function setMode(mode){
+  const game = load(); if(!game) return;
+  if (game.stage !== "game") return;
+  game.mode = mode;
+  save(game);
+  render(game);
+}
+
+function nextTurn(){
+  const game = load(); if(!game) return;
+  if (game.stage !== "game") return;
+
+  const alivePlayers = game.players.filter(p=>p.alive);
+  if (!alivePlayers.length) return;
+
+  const idx = alivePlayers.findIndex(p=>p.id===game.currentTurnId);
+  const next = alivePlayers[(idx+1) % alivePlayers.length];
+  game.currentTurnId = next.id;
+  save(game);
+  render(game);
+}
+
+function onPlayerClick(pid){
+  const game = load(); if(!game) return;
+  if (game.stage !== "game") return;
+  const p = game.players.find(x=>x.id===pid);
+  if (!p) return;
+
+  if (game.mode === "TURN"){
+    if (!p.alive) return;
+    game.currentTurnId = p.id;
+    save(game);
+    render(game);
+    return;
+  }
+
+  // VOTE mode
+  if (!p.alive) return;
+  // You can decide to prevent self-vote; I keep it allowed.
+  confirmVote(pid);
+}
+
+function confirmVote(pid){
+  const game = load(); if(!game) return;
+  const p = game.players.find(x=>x.id===pid);
+  if(!p || !p.alive) return;
+
+  const roleLabel = (p.role==="CIVIL") ? "Civil" : (p.role==="UNDERCOVER" ? "Undercover" : "Mr White");
+  // eliminate immediately, then handle MrWhite guess
+  p.alive = false;
+
+  save(game);
+  render(game);
+
+  modalOpen("Vote", `<b>${p.name}</b> est éliminé.<br>Rôle : <span class="pill">${roleLabel}</span>`);
+
+  // If Mr White eliminated: ask guess
+  if (p.role === "MRWHITE"){
+    $("guessArea").classList.remove("hidden");
+    $("guessInput").focus();
+
+    $("guessBtn").onclick = () => {
+      const g = load(); if(!g) return;
+      const guess = $("guessInput").value || "";
+      if (norm(guess) === norm(g.words.civil)){
+        // Mr White wins instantly
+        save(g);
+        $("guessArea").classList.add("hidden");
+        modalOpen("🎉 Mr White gagne !", `Il a deviné le mot Civil : <span class="pill">${g.words.civil}</span>`);
+        // mark stage over (optional)
+        g.stage = "game";
+        g.lastMessage = "Mr White a gagné.";
+        save(g);
+        return;
+      } else {
+        // wrong -> continue
+        $("guessArea").classList.add("hidden");
+        modalOpen("❌ Mauvais guess", `Le mot Civil n’était pas ça. La partie continue.`);
+        // after eliminating Mr White, he is already dead; check win
+        const res = checkWin(g);
+        if (res.over) {
+          modalOpen("Fin de partie", res.msg);
+        }
+        save(g);
+        render(g);
+        return;
+      }
+    };
+
+    return;
+  }
+
+  // Non-MrWhite elimination: check win
+  const res = checkWin(game);
+  if (res.over) {
+    modalOpen("Fin de partie", res.msg);
+  }
+  save(game);
+  render(game);
+}
+
+function toggleWords(){
+  $("wordsBox").classList.toggle("hidden");
+}
+
+/* ---------------------------
+   Render router
+---------------------------- */
+function render(game){
+  if(!game){ showOnly("setup"); return; }
+  if (game.stage === "reveal") renderReveal(game);
+  else if (game.stage === "game") renderGame(game);
+  else showOnly("setup");
+}
+
+/* ---------------------------
+   Wire up
+---------------------------- */
+$("pairs").value = DEFAULT_PAIRS;
+
+$("playerCount").addEventListener("input", () => { updateCivilPill(); });
+$("ucCount").addEventListener("input", () => { updateCivilPill(); });
+$("mwCount").addEventListener("input", () => { updateCivilPill(); });
+
+$("genNamesBtn").addEventListener("click", () => genNameInputs());
+
+$("startBtn").addEventListener("click", () => {
+  updateCivilPill();
+  const game = createGame();
+  if(game) render(game);
+});
+
+$("resumeBtn").addEventListener("click", () => resumeGame());
+
+$("wipeBtn").addEventListener("click", () => {
+  if(confirm("Tout effacer (partie + réglages sauvegardés) ?")){
+    wipe();
+    showOnly("setup");
+  }
+});
+
+$("tapBtn").addEventListener("click", () => revealTap());
+$("hideAndNextBtn").addEventListener("click", () => hideAndNext());
+$("skipBtn").addEventListener("click", () => skipReveal());
+$("resetGameBtn").addEventListener("click", () => {
+  if(confirm("Réinitialiser la partie ?")){ wipe(); showOnly("setup"); }
+});
+
+$("modeTurnBtn").addEventListener("click", () => setMode("TURN"));
+$("modeVoteBtn").addEventListener("click", () => setMode("VOTE"));
+$("nextTurnBtn").addEventListener("click", () => nextTurn());
+$("showWordsBtn").addEventListener("click", () => toggleWords());
+$("endBtn").addEventListener("click", () => {
+  if(confirm("Réinitialiser la partie ?")){ wipe(); showOnly("setup"); }
+});
+
+$("modalCloseBtn").addEventListener("click", () => modalClose());
+$("modalBackdrop").addEventListener("click", (e) => {
+  if (e.target === $("modalBackdrop")) modalClose();
+});
+
+// First load
+updateCivilPill();
+genNameInputs();
+const existing = load();
+if(existing) render(existing);
+else showOnly("setup");
+</script>
+</body>
+</html>
